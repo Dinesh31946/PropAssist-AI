@@ -1,0 +1,30 @@
+# --- Security (NEVER UPLOAD THESE) ---
+.env
+.env.local
+secrets.py
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environment (Too big to upload) ---
+venv/
+env/
+.venv/
+
+# --- Database (Don't upload local test data) ---
+*.db
+*.sqlite3
+app/database/*.db
+
+# --- IDE Settings (VS Code / PyCharm) ---
+.vscode/
+.idea/
+
+# --- Operating System ---
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log

@@ -20,8 +20,7 @@ It listens to your inbox, uses Large Language Models (LLMs) to understand if a l
 * **🛡️ Multi-Portal Ready:** Architecture designed to handle 99acres, MagicBricks, and Facebook Ads simultaneously.
 
 ## 🏗️ Architecture
-```mermaid
-graph LR
+mermaid graph LR
     A[Portal Email] -->|IMAP SSL| B(Email Listener)
     B -->|Raw Text| C{AI Brain}
     C -->|Analyze Intent| D[Structured Data]

@@ -1,5 +1,6 @@
 import imaplib
 import email
+import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -8,6 +9,7 @@ from app.core.models import Lead
 from app.services.openai_cli import analyze_lead_with_ai
 import json
 from app.database.db_handler import save_lead_to_db
+from app.services.whatsapp_cli import send_whatsapp_alert
 
 # Load environment variables from .env file
 load_dotenv()
@@ -98,6 +100,17 @@ def check_for_leads():
                                     score=data.get("score"),
                                     summary=data.get("summary")
                                 )
+                                
+                                # --- NEW CODE: Trigger WhatsApp ---
+                                print("🚀 Triggering WhatsApp Concierge...")
+                                wa_result = send_whatsapp_alert(
+                                    lead_name=data.get("name"),
+                                    property_name=data.get("property"),
+                                    lead_score=data.get("score"),
+                                    summary=data.get("summary")
+                                )
+                                print(wa_result)
+                                # ----------------------------------
                             except Exception as e:
                                 print(f"⚠️ Could not save to DB: {e}")
                             

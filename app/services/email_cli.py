@@ -1,125 +1,157 @@
+import os
+import time
 import imaplib
 import email
-import json
-import os
-from datetime import datetime, timedelta
+from email.header import decode_header
 from dotenv import load_dotenv
-from app.core.parser import extract_basic_info
-from app.core.models import Lead
 from app.services.openai_cli import analyze_lead_with_ai
-import json
-from app.database.db_handler import save_lead_to_db
-from app.services.whatsapp_cli import send_whatsapp_alert
+import datetime
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
+# --- CONFIGURATION ---
+IMAP_SERVER = "imap.gmail.com"
+EMAIL_USER = os.getenv("GMAIL_USER")
+EMAIL_PASS = os.getenv("GMAIL_PASS")
+
 def connect_to_email():
-    """Connects to Gmail IMAP server securely."""
-    user = os.getenv("GMAIL_USER")
-    password = os.getenv("GMAIL_PASS")
-    
-    # Connect to Gmail's IMAP server on Port 993 (SSL)
-    mail = imaplib.IMAP4_SSL("imap.gmail.com")
-    mail.login(user, password)
-    return mail
+    """Connects to Gmail IMAP"""
+    # --- SAFETY CHECK 1: Are credentials loaded? ---
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("❌ CRITICAL ERROR: Email credentials are missing!")
+        print(f"   - GMAIL_USER detected: {'Yes' if EMAIL_USER else 'NO'}")
+        print(f"   - GMAIL_APP_PASSWORD detected: {'Yes' if EMAIL_PASS else 'NO'}")
+        print("   -> Check your .env file is in the same folder and has these exact keys.")
+        return None
+
+    try:
+        mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+        mail.login(EMAIL_USER, EMAIL_PASS)
+        return mail
+    except Exception as e:
+        print(f"❌ Connection Failed: {e}")
+        return None
 
 def extract_body(msg):
-    """Helper function to handle multi-part emails and get the text content safely."""
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                # Added 'errors="ignore"' to handle special characters without crashing
-                return part.get_payload(decode=True).decode(errors="ignore")
-    else:
-        # Added 'errors="ignore"' here too
-        return msg.get_payload(decode=True).decode(errors="ignore")
+    """Safe extraction of plain text body from email"""
+    try:
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition"))
+
+                if content_type == "text/plain" and "attachment" not in content_disposition:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        return payload.decode(errors="ignore")
+        else:
+            payload = msg.get_payload(decode=True)
+            if payload:
+                return payload.decode(errors="ignore")
+    except Exception as e:
+        print(f"⚠️ Error extracting body: {e}")
+    
     return ""
 
 def check_for_leads():
-    """Main function to scan for fresh unread leads."""
+    """
+    Scans for NEW leads (Direct from Portal OR Forwarded from Agent).
+    STRICTER MODE: Only accepts recognized Portals or Explicit Keywords.
+    PERFORMANCE FIX: Uses Gmail's 'newer_than:1h' to scan only the last 60 mins.
+    """
     try:
+        print("⏳ Connecting to Gmail...")
         mail = connect_to_email()
+        if not mail:
+            return
+
         mail.select("inbox")
+        
+        # --- FIX: "LAST HOUR" FILTER (Gmail Specific) ---
+        # "is:unread" -> Only unread messages
+        # "newer_than:1h" -> Only received in the last 1 hour (Google Magic)
+        print(f"📅 Searching for unread emails from the last 1 hour...")
+        
+        # This syntax is specific to Gmail and is VERY fast
+        status, messages = mail.search(None, 'X-GM-RAW "is:unread newer_than:1h"')
+        
+        if status != 'OK':
+            print("❌ Failed to search emails.")
+            return
 
-        # Create a date string for 'Yesterday' (format: 30-Jan-2026)
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
-        
-        # 🎯 TARGETED SEARCH: 
-        # Only Unseen emails FROM 99acres with "Lead" in the Subject since yesterday
-        # You can add more portals like: OR (FROM "magicbricks.com")
-        
-        portals = ["99acres.com", "magicbricks.com", "facebookmail.com"]
-        portal_query = f'FROM "{portals[0]}"'
-        
-        for portal in portals[1:]:
-            portal_query = f'OR (FROM "{portal}") ({portal_query})'
-        
-        search_criteria = f'(UNSEEN SENTSINCE {yesterday} FROM "gosavidinesh68@gmail.com" SUBJECT "Lead")'
-        status, messages = mail.search(None, search_criteria)
-        
-        if status == 'OK':
-            id_list = messages[0].split()
-            if not id_list:
-                print(f"😴 No new unread leads since {yesterday}.")
-                return
+        id_list = messages[0].split()
+        if not id_list:
+            print("😴 No new unread emails in the last hour.")
+            return
 
-            print(f"🎯 Targeted Search: Found {len(id_list)} REAL leads. Processing...")
+        print(f"📨 Scanning {len(id_list)} new emails...")
 
-            for num in id_list:
-                res, msg_data = mail.fetch(num, '(RFC822)')
-                for response_part in msg_data:
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
+        for num in id_list:
+            res, msg_data = mail.fetch(num, '(RFC822)')
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    
+                    # 1. Get Subject & Sender
+                    subject = msg["Subject"] if msg["Subject"] else "No Subject"
+                    sender = msg["From"] if msg["From"] else "Unknown"
+                    
+                    subj_lower = subject.lower()
+                    sender_lower = sender.lower()
+
+                    # --- STRICT FILTERING LOGIC ---
+
+                    # 1. TRUSTED PORTALS (Always Accept)
+                    trusted_portals = ["99acres", "magicbricks", "housing.com", "commonfloor", "squareyards", "nobroker"]
+                    is_portal = any(p in sender_lower for p in trusted_portals)
+
+                    # 2. STRICT KEYWORDS (Subject must contain these)
+                    lead_keywords = ["lead", "enquiry", "inquiry", "requirement", "interested in", "i am interested"]
+                    has_lead_keyword = any(k in subj_lower for k in lead_keywords)
+
+                    if is_portal or has_lead_keyword:
+                        print(f"✅ FOUND LEAD: '{subject}' | From: {sender}")
                         
-                        # Extract the text body
-                        body = extract_body(msg) 
-
-                        # Extract name and phone using our logic in parser.py
-                        name, phone = extract_basic_info(body)
+                        body = extract_body(msg)
                         
-                        if phone != "Unknown":
-                            print(f"🔎 Potential Lead Found. Consulting AI...")
-    
-                            # Send the email body to our new AI function
-                            ai_analysis = analyze_lead_with_ai(body)
-                            
-                            print("-" * 30)
-                            print(f"🤖 PROPASSIST AI REPORT:")
-                            print(ai_analysis)
-                            print("-" * 30)
-                            
-                            try:
-                                # Convert the AI's string response into a Python Dictionary
-                                data = json.loads(ai_analysis) 
-                                
-                                save_lead_to_db(
-                                    name=data.get("name"),
-                                    phone=phone, # We use the phone number our regex found
-                                    property_name=data.get("property"),
-                                    score=data.get("score"),
-                                    summary=data.get("summary")
-                                )
-                                
-                                # --- NEW CODE: Trigger WhatsApp ---
-                                print("🚀 Triggering WhatsApp Concierge...")
-                                wa_result = send_whatsapp_alert(
-                                    lead_name=data.get("name"),
-                                    property_name=data.get("property"),
-                                    lead_score=data.get("score"),
-                                    summary=data.get("summary")
-                                )
-                                print(wa_result)
-                                # ----------------------------------
-                            except Exception as e:
-                                print(f"⚠️ Could not save to DB: {e}")
-                            
+                        if body and len(body.strip()) > 0:
+                            clean_body = " ".join(body.split())
+                            analyze_lead_with_ai(clean_body)
                         else:
-                            # Marking as read so we don't look at it in the next loop
-                            mail.store(num, '+FLAGS', '\\Seen')
-                            print("⏭️ Marked non-lead email as read.")
-                            
+                            print("⚠️ Warning: Email body was empty. Skipping.")
+                    
+                    else:
+                        print(f"❌ SKIPPED: '{subject}' (No portal or keyword match)")
+
         mail.logout()
         
     except Exception as e:
-        print(f"⚠️ Error inside check_for_leads: {e}")
+        print(f"⚠️ Error in check_for_leads: {e}")
+
+# Helper to prevent circular imports
+def save_lead_to_db_and_alert(ai_json_string):
+    import json
+    from app.services.whatsapp_cli import send_whatsapp_alert
+    from app.database.db_handler import save_lead_to_db
+
+    try:
+        data = json.loads(ai_json_string)
+        
+        save_lead_to_db(
+            name=data.get("name"),
+            phone="Unknown",
+            property_name=data.get("property"),
+            score=data.get("score"),
+            summary=data.get("summary")
+        )
+
+        send_whatsapp_alert(
+            lead_name=data.get("name"),
+            property_name=data.get("property"),
+            lead_score=data.get("score"),
+            summary=data.get("summary")
+        )
+
+    except Exception as e:
+        print(f"⚠️ Saving Error: {e}")

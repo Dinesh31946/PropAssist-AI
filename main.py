@@ -1,29 +1,35 @@
-from app.database.db_handler import init_db
 import time
+import schedule
+from app.database.db_handler import init_db
 from app.services.email_cli import check_for_leads
 
-def start_app():
-    """
-    Main loop that keeps the AI bot running.
-    It checks for new leads every 60 seconds.
-    """
-    print("🚀 PropAssist.AI Bot is now running...")
-    print("Watching for new leads in your Gmail inbox...")
+# --- CONFIGURATION ---
+CHECK_INTERVAL_SECONDS = 20  # Runs every 20 seconds
+
+def start_bot():
+    print("🚀 PropAssist.AI Bot is initializing...")
     
-    while True:
-        try:
-            # Call the function from your email_cli.py
-            check_for_leads()
-            
-            # Pause the script for 1 minute before checking again
-            # This prevents Gmail from blocking you for too many requests
-            time.sleep(60)
-            
-        except Exception as e:
-            print(f"❌ An error occurred: {e}")
-            print("Retrying in 10 seconds...")
-            time.sleep(10)
+    # 1. Initialize Database
+    init_db()
+    print("🗄️ Database initialized successfully.")
+
+    # 2. Run the check immediately once (so you don't have to wait 20s for the first run)
+    print("⚡ Doing an initial quick scan...")
+    check_for_leads()
+
+    # 3. Schedule the loop
+    print(f"👀 Watching for new leads every {CHECK_INTERVAL_SECONDS} seconds...")
+    schedule.every(CHECK_INTERVAL_SECONDS).seconds.do(check_for_leads)
+
+    print("🟢 Bot is LIVE. Press Ctrl+C to stop.")
+
+    # 4. Infinite Loop (Keeps the script running forever)
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(1) # Sleep 1s to save CPU
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user.")
 
 if __name__ == "__main__":
-    init_db()  # Create the DB file as soon as the app starts
-    start_app()
+    start_bot()

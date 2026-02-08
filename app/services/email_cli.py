@@ -132,7 +132,7 @@ def check_for_leads():
 # Helper to prevent circular imports
 def save_lead_to_db_and_alert(ai_json_string):
     import json
-    from app.services.whatsapp_cli import send_whatsapp_alert
+    from app.services.whatsapp_green_cli import send_whatsapp_alert
     from app.database.db_handler import save_lead_to_db
 
     try:

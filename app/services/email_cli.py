@@ -132,26 +132,27 @@ def check_for_leads():
 # Helper to prevent circular imports
 def save_lead_to_db_and_alert(ai_json_string):
     import json
-    from app.services.whatsapp_green_cli import send_whatsapp_alert
     from app.database.db_handler import save_lead_to_db
+    # --- CHANGE 2: Import the new Hybrid Flow ---
+    from app.services.whatsapp_green_cli import handle_new_lead_flow
 
     try:
         data = json.loads(ai_json_string)
         
-        save_lead_to_db(
-            name=data.get("name"),
-            phone="Unknown",
-            property_name=data.get("property"),
-            score=data.get("score"),
-            summary=data.get("summary")
-        )
+        # Extract variables safely
+        name = data.get("name", "Unknown")
+        phone = data.get("phone") # AI now gives us this!
+        prop = data.get("property", "Property")
+        score = data.get("score", 0)
+        summary = data.get("summary", "")
 
-        send_whatsapp_alert(
-            lead_name=data.get("name"),
-            property_name=data.get("property"),
-            lead_score=data.get("score"),
-            summary=data.get("summary")
-        )
+        # Save to DB (We save the phone number now too)
+        save_lead_to_db(name, phone, prop, score, summary)
+
+        print(f"💾 Lead for {name} saved to database.")
+
+        # --- CHANGE 3: Trigger the Double-Message Flow ---
+        handle_new_lead_flow(name, phone, prop, score, summary)
 
     except Exception as e:
         print(f"⚠️ Saving Error: {e}")

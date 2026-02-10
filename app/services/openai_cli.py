@@ -11,18 +11,22 @@ def analyze_lead_with_ai(email_body):
     try:
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+        # --- CHANGE 1: THE UPDATED PROMPT ---
         prompt = """
         You are a Real Estate Lead Extractor.
         
         INPUT: An email body (Direct or Forwarded).
         TASK:
-        1. Ignore "Forwarded message" headers (From, Date, To) at the top.
-        2. Find the ORIGINAL Customer Name and Property details.
-        3. Rate 'score' (0-100) based on urgency ("Immediate", "Visit tomorrow" = High).
-        4. Create a 1-sentence 'summary'.
+        1. Ignore "Forwarded message" headers.
+        2. Extract:
+           - Customer Name (If unknown, use "Guest")
+           - Customer Phone (Look for 10-12 digit numbers. If +91 is missing, add it. If none, return null).
+           - Property Name
+        3. Rate 'score' (0-100) based on urgency.
+        4. Create a 'summary'.
         
         OUTPUT JSON ONLY:
-        {"name": "Name", "property": "Property", "score": 90, "summary": "Summary"}
+        {"name": "Name", "phone": "919876543210", "property": "Property", "score": 90, "summary": "Summary"}
         """
 
         response = client.chat.completions.create(
@@ -36,7 +40,7 @@ def analyze_lead_with_ai(email_body):
 
         ai_analysis = response.choices[0].message.content
         
-        # Import dynamically to avoid circular error
+        # Pass the data to the next step
         from app.services.email_cli import save_lead_to_db_and_alert
         save_lead_to_db_and_alert(ai_analysis)
 

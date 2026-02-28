@@ -46,3 +46,36 @@ def analyze_lead_with_ai(email_body):
 
     except Exception as e:
         print(f"❌ AI Error: {e}")
+
+def generate_chat_reply(customer_message):
+    """
+    Takes the live WhatsApp message, runs it through the Persona, 
+    and returns a Hinglish reply.
+    """
+    print("🧠 AI is thinking about the reply...")
+    try:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        # The Persona (Your Competitive Moat)
+        system_prompt = """
+        You are a highly professional and polite real estate agent working in Navi Mumbai, specifically specializing in the Ulwe area. 
+        Your goal is to qualify leads and get them to agree to a site visit. 
+        Speak in natural 'Hinglish' (a mix of Hindi and English) just like a real Indian broker. 
+        Keep your answers short, crisp, and conversational. Do not sound like a robot.
+        If they ask for property prices, give a realistic estimate for Ulwe but tell them exact prices depend on the property, and ask when they can come for a site visit.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", # Keeping it fast and cheap!
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": customer_message}
+            ]
+        )
+
+        ai_reply = response.choices[0].message.content
+        return ai_reply
+
+    except Exception as e:
+        print(f"❌ Chat AI Error: {e}")
+        return "Sorry, I am currently driving. I will call you back shortly!"

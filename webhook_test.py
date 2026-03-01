@@ -13,33 +13,48 @@ async def receive_whatsapp_message(request: Request):
     data = await request.json()
     
     try:
-        # 1. Filter: Only process incoming TEXT messages
-        if data.get("typeWebhook") == "incomingMessageReceived" and data.get("messageData", {}).get("typeMessage") == "textMessage":
-            
-            sender_phone = data['senderData']['chatId'] 
-            
-            # 🛑 SHIELD 1: Ignore all Group Messages
-            if "@g.us" in sender_phone:
-                return {"status": "success"}
+        webhook_type = data.get("typeWebhook")
+        
+        # 1. Ignore outgoing messages (prevents infinite loops)
+        if webhook_type != "incomingMessageReceived":
+            return {"status": "success"}
 
-            message_text = data['messageData']['textMessageData']['textMessage']
-            print(f"\n🔔 MESSAGE RECEIVED: {message_text}")
+        msg_data = data.get("messageData", {})
+        msg_type = msg_data.get("typeMessage")
+        
+        # 🚀 SMART MESSAGE EXTRACTOR (Handles Texts AND Replies)
+        message_text = ""
+        if msg_type == "textMessage":
+            message_text = msg_data.get("textMessageData", {}).get("textMessage", "")
+        elif msg_type == "extendedTextMessage":
+            message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
+        else:
+            print(f"🙈 Ignored non-text message type: {msg_type}")
+            return {"status": "success"}
 
-            # 🛑 SHIELD 2: The Database Target Lock
-            lead_context = get_lead_by_phone(sender_phone)
+        sender_phone = data['senderData']['chatId'] 
+        
+        # 🛑 SHIELD 1: Ignore all Group Messages
+        if "@g.us" in sender_phone:
+            return {"status": "success"}
+
+        print(f"\n🔔 CUSTOMER SAYS: {message_text}")
+
+        # 🛑 SHIELD 2: The Database Target Lock
+        lead_context = get_lead_by_phone(sender_phone)
+        
+        if not lead_context:
+            print(f"🔒 UNKNOWN NUMBER ({sender_phone}). Ignoring to stay professional.")
+            return {"status": "success"}
             
-            if not lead_context:
-                print(f"🔒 UNKNOWN NUMBER ({sender_phone}). Ignoring to stay professional.")
-                return {"status": "success"}
-                
-            print(f"✅ VERIFIED LEAD DETECTED: {lead_context['name']} asking about {lead_context['property']}")
-            
-            # 3. The Brain: Pass message AND database context to OpenAI
-            ai_reply = generate_chat_reply(message_text, lead_context)
-            print(f"🤖 AI REPLIES: {ai_reply}")
-            
-            # 4. The Mouth: Send the reply back
-            send_message_via_greenapi(sender_phone, ai_reply)
+        print(f"✅ VERIFIED LEAD DETECTED: {lead_context['name']} asking about {lead_context['property']}")
+        
+        # 3. The Brain
+        ai_reply = generate_chat_reply(message_text, lead_context)
+        print(f"🤖 AI REPLIES: {ai_reply}")
+        
+        # 4. The Mouth
+        send_message_via_greenapi(sender_phone, ai_reply)
             
     except Exception as e:
         print(f"⚠️ Webhook processing error: {e}")

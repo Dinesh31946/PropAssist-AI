@@ -15,21 +15,26 @@ async def receive_whatsapp_message(request: Request):
     try:
         webhook_type = data.get("typeWebhook")
         
-        # 1. Ignore outgoing messages (prevents infinite loops)
+        # 1. Ignore delivery receipts and outgoing messages
         if webhook_type != "incomingMessageReceived":
             return {"status": "success"}
 
         msg_data = data.get("messageData", {})
         msg_type = msg_data.get("typeMessage")
         
-        # 🚀 SMART MESSAGE EXTRACTOR (Handles Texts AND Replies)
+        # 🚨 X-RAY VISION: Print exactly what GreenAPI is sending
+        print(f"\n🔍 [DEBUG] WhatsApp Message Type: {msg_type}")
+        
+        # 🚀 SMART MESSAGE EXTRACTOR
         message_text = ""
         if msg_type == "textMessage":
             message_text = msg_data.get("textMessageData", {}).get("textMessage", "")
         elif msg_type == "extendedTextMessage":
             message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
         else:
+            # If it's a sticker, image, or reaction, we print the RAW JSON to see what it looks like
             print(f"🙈 Ignored non-text message type: {msg_type}")
+            print(f"📦 [RAW DATA]: {data}")
             return {"status": "success"}
 
         sender_phone = data['senderData']['chatId'] 
@@ -38,7 +43,7 @@ async def receive_whatsapp_message(request: Request):
         if "@g.us" in sender_phone:
             return {"status": "success"}
 
-        print(f"\n🔔 CUSTOMER SAYS: {message_text}")
+        print(f"🔔 CUSTOMER SAYS: {message_text}")
 
         # 🛑 SHIELD 2: The Database Target Lock
         lead_context = get_lead_by_phone(sender_phone)

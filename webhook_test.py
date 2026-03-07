@@ -31,10 +31,13 @@ async def receive_whatsapp_message(request: Request):
             message_text = msg_data.get("textMessageData", {}).get("textMessage", "")
         elif msg_type == "extendedTextMessage":
             message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
+        elif msg_type == "quotedMessage":
+            # This catches direct replies to previous messages!
+            message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
         else:
             # If it's a sticker, image, or reaction, we print the RAW JSON to see what it looks like
             print(f"🙈 Ignored non-text message type: {msg_type}")
-            print(f"📦 [RAW DATA]: {data}")
+            # print(f"📦 [RAW DATA]: {data}")
             return {"status": "success"}
 
         sender_phone = data['senderData']['chatId'] 

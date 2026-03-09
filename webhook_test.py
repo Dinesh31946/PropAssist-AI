@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
 import uvicorn
 
-# Import your custom modules
 from app.services.openai_cli import generate_chat_reply
 from app.services.whatsapp_green_cli import send_message_via_greenapi
 from app.database.db_handler import get_lead_by_phone
@@ -22,7 +21,6 @@ async def receive_whatsapp_message(request: Request):
         msg_data = data.get("messageData", {})
         msg_type = msg_data.get("typeMessage")
         
-        # 🚨 X-RAY VISION: Print exactly what GreenAPI is sending
         print(f"\n🔍 [DEBUG] WhatsApp Message Type: {msg_type}")
         
         # 🚀 SMART MESSAGE EXTRACTOR
@@ -32,36 +30,35 @@ async def receive_whatsapp_message(request: Request):
         elif msg_type == "extendedTextMessage":
             message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
         elif msg_type == "quotedMessage":
-            # This catches direct replies to previous messages!
             message_text = msg_data.get("extendedTextMessageData", {}).get("text", "")
         else:
-            # If it's a sticker, image, or reaction, we print the RAW JSON to see what it looks like
-            print(f"🙈 Ignored non-text message type: {msg_type}")
-            # print(f"📦 [RAW DATA]: {data}")
+            print(f"🙈 Ignored non-text type: {msg_type}")
             return {"status": "success"}
 
         sender_phone = data['senderData']['chatId'] 
         
-        # 🛑 SHIELD 1: Ignore all Group Messages
+        # 🚨 THE NEW CALLER ID 
+        print(f"📱 [CALLER ID] Message from: {sender_phone}")
+        
+        # 🛑 SHIELD 1: Ignore Group Messages
         if "@g.us" in sender_phone:
+            print("🛡️ Shield blocked a group message.")
             return {"status": "success"}
 
         print(f"🔔 CUSTOMER SAYS: {message_text}")
 
-        # 🛑 SHIELD 2: The Database Target Lock
+        # 🛑 SHIELD 2: Database Check
         lead_context = get_lead_by_phone(sender_phone)
         
         if not lead_context:
             print(f"🔒 UNKNOWN NUMBER ({sender_phone}). Ignoring to stay professional.")
             return {"status": "success"}
             
-        print(f"✅ VERIFIED LEAD DETECTED: {lead_context['name']} asking about {lead_context['property']}")
+        print(f"✅ VERIFIED LEAD DETECTED: {lead_context['name']}")
         
-        # 3. The Brain
         ai_reply = generate_chat_reply(message_text, lead_context)
         print(f"🤖 AI REPLIES: {ai_reply}")
         
-        # 4. The Mouth
         send_message_via_greenapi(sender_phone, ai_reply)
             
     except Exception as e:
@@ -70,5 +67,5 @@ async def receive_whatsapp_message(request: Request):
     return {"status": "success"}
 
 if __name__ == "__main__":
-    print("👂 AI Agent is awake, shielded, and listening on port 8000...")
+    print("👂 AI Agent is listening with CALLER ID on port 8000...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

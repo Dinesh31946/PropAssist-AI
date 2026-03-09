@@ -32,19 +32,38 @@ def init_db():
 
 def save_lead_to_db(name, phone, property_name, score, summary):
     """
-    Saves a new lead into our 'Excel-like' database.
+    Saves a new lead into our database OR updates an existing one 
+    if they inquire about the same property again (Deduplication).
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
+    # 1. Check if this exact Phone + Property combination already exists
     cursor.execute('''
-        INSERT INTO leads (name, phone, property, score, summary, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (name, phone, property_name, score, summary, datetime.now()))
+        SELECT id FROM leads 
+        WHERE phone = ? AND property = ?
+    ''', (phone, property_name))
+    
+    existing_lead = cursor.fetchone()
+    
+    if existing_lead:
+        # 2. If they exist, just update their timestamp and score (Do not duplicate!)
+        cursor.execute('''
+            UPDATE leads 
+            SET timestamp = ?, score = ?, summary = ?
+            WHERE id = ?
+        ''', (datetime.now(), score, summary, existing_lead[0]))
+        print(f"🔄 Lead {name} already exists for {property_name}. Timestamp updated.")
+    else:
+        # 3. If they are new, insert a fresh row
+        cursor.execute('''
+            INSERT INTO leads (name, phone, property, score, summary, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (name, phone, property_name, score, summary, datetime.now()))
+        print(f"💾 New Lead for {name} saved to database.")
     
     conn.commit()
     conn.close()
-    print(f"💾 Lead for {name} saved to database.")
     
 def get_lead_by_phone(phone_number):
     """
